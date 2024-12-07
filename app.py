@@ -87,17 +87,26 @@ def oversample_minority_classes(df):
 
     return oversampled_df
 
-def train_model(train_df):
-    lr = LogisticRegression(featuresCol="features", labelCol="label", maxIter=100)
+def perform_grid_search_rf(train_df, val_df):
+    rf = RandomForestClassifier(featuresCol="features", labelCol="label")
     paramGrid = ParamGridBuilder() \
-        .addGrid(lr.regParam, [0.01, 0.1, 1.0]) \
-        .addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0]) \
+        .addGrid(rf.numTrees, [10, 20, 50, 100]) \
+        .addGrid(rf.maxDepth, [5, 10, 15]) \
         .build()
-    tvs = TrainValidationSplit(estimator=lr,
+    evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+    tvs = TrainValidationSplit(estimator=rf,
                                estimatorParamMaps=paramGrid,
-                               evaluator=MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy"),
+                               evaluator=evaluator,
                                trainRatio=0.8)
-    return tvs.fit(train_df)
+    model = tvs.fit(train_df)
+    best_rf = model.bestModel
+    best_accuracy = evaluator.evaluate(best_rf.transform(val_df))
+    print()
+    print(f"Best Random Forest Model: \
+          \n numTrees = {best_rf.getNumTrees}, 
+          \n maxDepth = {best_rf.getMaxDepth}")
+    print(f"Validation Accuracy: {best_accuracy:.4f}")
+    return best_rf
 
 def train_and_evaluate(models, train_df, val_df):
     eval_acc = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
@@ -113,9 +122,9 @@ def train_and_evaluate(models, train_df, val_df):
         f1_score = eval_f1.evaluate(preds)
         print(f"Accuracy: {accur:.4f}, \nF1 Score: {f1_score:.4f}")
         results.append((name, accur, f1_score))
-        trained_models[name] = spark_model
+        # trained_models[name] = spark_model
 
-    return results, trained_models
+    return results
 
 def main():
     spark = initialize_spark()
@@ -126,12 +135,11 @@ def main():
         train, val  = df.randomSplit([0.8, 0.2], seed=42)
 
         models = [
-            ("Logistic Regression", LogisticRegression(featuresCol="features", labelCol="label", maxIter=100)),
             ("Random Forest", RandomForestClassifier(featuresCol="features", labelCol="label", numTrees=50)),
         ]
 
         # Train and evaluate models
-        results, trained_models = train_and_evaluate(models, train, val)
+        results = train_and_evaluate(models, train, val)
 
         # Print results
         print("\nModel Comparison Results")
@@ -140,14 +148,12 @@ def main():
                   \n Accuracy = {accuracy:.4f}\
                   \n F1 Score = {f1_score:.4f}")
 
-        # Find the best model
-        best_modname, _, _ = max(results, key=lambda x: x[1])
-        best_mod = trained_models[best_modname]
-        print(f"\nBest Model: {best_modname}")
-        print()
-        
+         # Grid Search for Random Forest
+        print("\nPerforming Grid Search for Random Forest...")
+        best_rf_model = perform_grid_search_rf(train, val)
+
         # Save
-        best_mod.write().overwrite().save("best_model")
+        best_rf_model.write().overwrite().save("best_model")
     finally:
         spark.stop()
 
