@@ -19,7 +19,7 @@ def initialize_spark():
         .appName("WineQualityPrediction") \
         .getOrCreate()
 
-      # .master("local[*]") \ # make Spark run locally
+      # .master("local[*]") uncomment to make Spark run locally
         
 
 def load_dataset(spark, train_csv, val_csv):
