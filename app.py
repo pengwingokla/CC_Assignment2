@@ -8,15 +8,19 @@ import matplotlib.pyplot as plt
 from pyspark.sql.types import NumericType
 import os
 
+# TRAINCSV = "/home/ubuntu/code/TrainingDataset.csv"
+# VALCSV   = "/home/ubuntu/code/ValidationDataset.csv"
+
 TRAINCSV = "TrainingDataset.csv"
 VALCSV   = "ValidationDataset.csv"
 
 def initialize_spark():
     return SparkSession.builder \
         .appName("WineQualityPrediction") \
-        .master("local[*]") \
         .getOrCreate()
 
+      # .master("local[*]") \ # make Spark run locally
+        
 
 def load_dataset(spark, train_csv, val_csv):
     if not os.path.exists(train_csv) or not os.path.exists(val_csv):
@@ -95,50 +99,31 @@ def train_model(train_df):
                                trainRatio=0.8)
     return tvs.fit(train_df)
 
-def evaluate_model(model, val_df):
-    val_pred = model.transform(val_df)
-    evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
-    return evaluator.evaluate(val_pred), val_pred
-
-def plot_loss(best_model):
-    if hasattr(best_model, 'summary') and hasattr(best_model.summary, 'objectiveHistory'):
-        loss_values = best_model.summary.objectiveHistory
-        plt.figure(figsize=(10, 6))
-        plt.plot(range(len(loss_values)), loss_values, marker='o')
-        plt.title('Loss Over Iterations')
-        plt.xlabel('Iteration')
-        plt.ylabel('Loss')
-        plt.grid(True)
-        plt.savefig('loss_over_iters.png', dpi=300, bbox_inches='tight')
-
 def train_and_evaluate(models, train_df, val_df):
     eval_acc = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
     eval_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
     results = []
+    trained_models = {}
 
     for name, model in models:
         print(f"\nTraining {name}...")
-        trained_model = model.fit(train_df)
-        predictions = trained_model.transform(val_df)
-        accuracy = eval_acc.evaluate(predictions)
-        f1_score = eval_f1.evaluate(predictions)
-        print(f"Accuracy: {accuracy:.4f}, \nF1 Score: {f1_score:.4f}")
-        results.append((name, accuracy, f1_score))
+        spark_model = model.fit(train_df)
+        preds = spark_model.transform(val_df)
+        accur = eval_acc.evaluate(preds)
+        f1_score = eval_f1.evaluate(preds)
+        print(f"Accuracy: {accur:.4f}, \nF1 Score: {f1_score:.4f}")
+        results.append((name, accur, f1_score))
+        trained_models[name] = spark_model
 
-    return results
+    return results, trained_models
 
 def main():
     spark = initialize_spark()
     try:
-        combined_df = load_dataset(spark, TRAINCSV, VALCSV)
-        processed_df= preprocess_data(combined_df)
-        balanced_df = oversample_minority_classes(processed_df)
-        train, val  = balanced_df.randomSplit([0.8, 0.2], seed=42)
-        # model = train_model(train)
-        # val_acc, val_pred = evaluate_model(model, val)
-        # print(f"Validation Accuracy: {val_acc:.2f}")
-        # # plot_loss(model.bestModel)
-        # model.bestModel.write().overwrite().save("optimized_model")
+        df = load_dataset(spark, TRAINCSV, VALCSV)
+        df = preprocess_data(df)
+        df = oversample_minority_classes(df)
+        train, val  = df.randomSplit([0.8, 0.2], seed=42)
 
         models = [
             ("Logistic Regression", LogisticRegression(featuresCol="features", labelCol="label", maxIter=100)),
@@ -146,7 +131,7 @@ def main():
         ]
 
         # Train and evaluate models
-        results = train_and_evaluate(models, train, val)
+        results, trained_models = train_and_evaluate(models, train, val)
 
         # Print results
         print("\nModel Comparison Results")
@@ -156,9 +141,13 @@ def main():
                   \n F1 Score = {f1_score:.4f}")
 
         # Find the best model
-        best_model = max(results, key=lambda x: x[1])
-        print(f"\nBest Model: {best_model[0]} with Accuracy = {best_model[1]:.4f}")
+        best_modname, _, _ = max(results, key=lambda x: x[1])
+        best_mod = trained_models[best_modname]
+        print(f"\nBest Model: {best_modname}")
         print()
+        
+        # Save
+        best_mod.write().overwrite().save("best_model")
     finally:
         spark.stop()
 
