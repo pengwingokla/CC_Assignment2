@@ -1,9 +1,25 @@
+## Project Action Items
+0. Launch 4 EC2 instances on AWS to parallelize model training.
+0. SSH into the EC2 Instance
+0. Transfer Files to the Instance
+
+### (Option 1) Running the Project Without Docker on the Instance
+1. Install Java OpenJDK (required for Spark) and Apache Spark on all instances
+2. Configure the instances to run Spark on Ubuntu Linux.
+3. Submit the Spark Job
+
+### (Option 2) Running the Project with Docker on the Instance
+1. Install Docker on the Instance
+2. Build the Docker Image on the Instance
+3. Run the Docker Container
+4. Submit the Spark Job
+
+## Transfer Dataset to master instance
+`scp -i <your-key>.pem TrainingDataset.csv ubuntu@<master-public-ip>:/home/ubuntu/`
+<br> `scp -i <your-key>.pem ValidationDataset.csv ubuntu@<master-public-ip>:/home/ubuntu/`
+
 ## Set Up AWS EC2 Instances
-- Launch 4 EC2 instances on AWS to parallelize model training.
 #### Install required software on EC2 instances
-- Install Java OpenJDK (required for Spark) and Apache Spark on all instances
-- Configure the instances to run Spark on Ubuntu Linux.
-#### Commands:
 SSH to connect to each instance, install Java and check: 
 <br> `ssh -i <your-key>.pem ubuntu@<instance-public-ip>`
 <br> `sudo apt update && sudo apt upgrade -y`
@@ -24,7 +40,6 @@ SSH to connect to each instance, install Java and check:
 
 ## Set up passwordless SSH Access
 Configure passwordless SSH access from the master node to each worker node to streamline the copying process.
-
 <br> **1) Generate an SSH Key Pair on the Master Node:**
 <br> `ssh ubuntu@<MASTER_NODE_IP>`
 <br> `ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -q -N ""`
@@ -46,11 +61,6 @@ Configure passwordless SSH access from the master node to each worker node to st
 <br> From the master node, test logging into each worker node without a password:
 <br> `ssh ubuntu@<WORKER_NODE_IP>`
 
- 
-## Transfer Dataset to master instance
-`scp -i <your-key>.pem TrainingDataset.csv ubuntu@<master-public-ip>:/home/ubuntu/`
-<br> `scp -i <your-key>.pem ValidationDataset.csv ubuntu@<master-public-ip>:/home/ubuntu/`
-
 ## Set Up Spark Cluster
 The parallel training implementation in this project leverages Apache Spark's distributed computing capabilities.
 This project sets up Apache Spark standalone cluster with:
@@ -69,7 +79,6 @@ Each worker node has a specified number of cores and memory assigned.
 
 #### Spark Web UI: 
 `http://<master-public-ip>:8080`
-
 
 ### Configure Spark Cluster
 <br> 1) Verify Spark Installation: `/opt/spark/bin/spark-shell --version`
@@ -108,6 +117,9 @@ Each worker node has a specified number of cores and memory assigned.
 <br> On worker node: `$SPARK_HOME/sbin/start-slave.sh spark://<master_node_private_ip>:7077`
 
 ## Use Docker in a Spark Cluster
+### Set up Docker
+
+<br> 0. Transfer Files to the Instance: Use `scp` to transfer all necessary files (e.g., Dockerfile, app.py, requirements.txt, TrainingDataset.csv) to the EC2 instance.
 
 <br> 1. Build and Tag Your Docker Image Locally
 <br> `docker build -t wine-quality-app .`
@@ -125,30 +137,56 @@ docker push DOCKERHUB-USERNAME/wine-quality-app:latest`
 <br> `sudo systemctl start docker`
 <br> `sudo systemctl enable docker`
 
-<br> 4. Pull the Docker Image on All Nodes
-<br> `docker pull your-dockerhub-username/spark-wine-quality-app:latest`
+<br> 4. Configure Docker on EC2 Instance
+- Pull the Docker Image on All Nodes
+<br> `sudo docker pull DOCKERHUB-USERNAME/wine-quality-app:latest`
+- Add user to the Docker group to avoid needing sudo for Docker commands: 
+<br> Check if your user (ubuntu) is part of the docker group:
+<br> `groups`
+<br> If not, add by using:
+<br> `sudo usermod -aG docker $USER`
+<br> `newgrp docker`
+<br> `docker run hello-world`
 
-<br> 5. Configure Spark to Use Docker
+### Running the Project with Docker
+<br> 5. Build the Docker Image on the Instance
+<br> `cd /home/ubuntu/code`
+<br> `docker build -t wine-quality-app .`
+
+<br> 6. Run the Docker Container
+<br> `docker run -it --rm \
+--network="host" \
+wine-quality-app`
+
+<br> 7. Configure Spark to Use Docker
 <br> Edit the spark-env.sh file:
 <br> `sudo nano $SPARK_HOME/conf/spark-env.sh`
 <br> Add the following line:
 <br> `SPARK_EXECUTOR_OPTS="--conf spark.executor.docker.image=your-image-name"`
 `SPARK_DRIVER_OPTS="--conf spark.driver.docker.image=your-image-name"`
 
+<br> 8. Submit the Spark Application
+
 ### Docker Hub:
 https://hub.docker.com/repository/docker/chloecodes/wine-quality-app/general
 ## Training and Prediction Application
 Spark will use the Docker container to execute the tasks in parallel across all nodes.
 
-<br> Submit to EC2 Instance:
+<br> Submit the Spark Application on master node:
 <br> `$SPARK_HOME/bin/spark-submit \`
 <br>`  --master spark://172.31.25.1:7077 \`
 <br>`  --deploy-mode client \`
-<br>`  --executor-memory 4G \`
+<br>`  --executor-memory 18G \`
 <br>`  --total-executor-cores 6 \`
 <br>`  /home/ubuntu/code/app.py`
 
-<br>
+## Key Notes
+- With Docker:
+Simplifies setup and ensures consistency across all environments.
+Requires a properly built Docker image.
+- Without Docker:
+Requires manual setup on each node, including installing dependencies and configuring Spark.
+
 <br>
 <br>
 <br>
