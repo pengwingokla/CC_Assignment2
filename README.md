@@ -1,0 +1,1 @@
+$SPARK_HOME/bin/spark-submit --master spark://172.31.25.1:7077 --deploy-mode client --executor-memory 4G --total-executor-cores 6 /home/ubuntu/code/app.py
