@@ -5,6 +5,20 @@ from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from app import preprocess_data
 import os
 import json
+import logging
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("WineQualityPrediction")
+
+def initialize_spark():
+    return SparkSession.builder \
+        .appName("WineQualityPrediction") \
+        .master("spark://172.31.87.32:7077") \
+        .config("spark.executor.memory", "3g") \
+        .config("spark.executor.cores", "2") \
+        .config("spark.task.cpus", "1") \
+        .getOrCreate()
 
 def load_model(model_path):
     model_type = get_model_type(model_path)
@@ -35,33 +49,36 @@ def evaluate_model(predictions):
     return accuracy, f1_score
 
 def main():
-    spark = SparkSession.builder \
-        .appName("WineQualityTraining") \
-        .getOrCreate() \
+    spark = initialize_spark()
     
     try:
         # Load test dataset
+        logger.info("Loading test dataset...")
         TESTCSV = "TestDataset.csv"
         testdf = spark.read.csv(TESTCSV, header=True, inferSchema=True, sep=';')
         testdf = preprocess_data(testdf)
 
         # Load saved model
-        MODEL_PATH = "best_model"                       # Adjust the path to /home/ubuntu/code/best_model
+        logger.info("Loading the trained model...")
+        MODEL_PATH = "best_model"           # /home/ubuntu/code/best_model
         best_model = load_model(MODEL_PATH)
 
         # Make predictions
+        logger.info("Making predictions...")
         preds = best_model.transform(testdf)
         preds.select("features", "prediction").show()
 
         # Evaluate model
+        logger.info("Evaluating model performance...")
         accuracy, f1_score = evaluate_model(preds)
-        print(f"Model Performance: \
-              \n Accuracy = {accuracy:.4f} \
-              \n F1 Score = {f1_score:.4f}")
+        logger.info(f"Model Performance: \
+                    \n Accuracy = {accuracy:.4f} \
+                    \n F1 Score = {f1_score:.4f}")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"An error occurred: {e}")
     finally:
+        logger.info("Stopping Spark session...")
         spark.stop()
 
 if __name__ == "__main__":

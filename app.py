@@ -1,22 +1,31 @@
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import VectorAssembler, StringIndexer
-from pyspark.ml.classification import LogisticRegression, RandomForestClassifier, GBTClassifier
+from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.sql.functions import col, count, lit
-import matplotlib.pyplot as plt
+from pyspark.sql.functions import col, count
 from pyspark.sql.types import NumericType
 import os
+import logging
 
 # TRAINCSV = "/home/ubuntu/code/TrainingDataset.csv"
 # VALCSV   = "/home/ubuntu/code/ValidationDataset.csv"
 
 TRAINCSV = "TrainingDataset.csv"
 VALCSV   = "ValidationDataset.csv"
+MODEL_PATH = "best_model"
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("WineQualityPrediction")
 
 def initialize_spark():
     return SparkSession.builder \
         .appName("WineQualityPrediction") \
+        .master("spark://172.31.87.32:7077") \
+        .config("spark.executor.memory", "3g") \
+        .config("spark.executor.cores", "2") \
+        .config("spark.task.cpus", "1") \
         .getOrCreate()
 
       # .master("local[*]") uncomment to make Spark run locally
@@ -90,29 +99,40 @@ def oversample_minority_classes(df):
 def perform_grid_search_rf(train_df, val_df):
     rf = RandomForestClassifier(featuresCol="features", labelCol="label")
     paramGrid = ParamGridBuilder() \
-        .addGrid(rf.numTrees, [10, 20, 50, 100]) \
-        .addGrid(rf.maxDepth, [5, 10, 15]) \
+        .addGrid(rf.numTrees, [20, 50, 75, 100, 150, 200]) \
+        .addGrid(rf.maxDepth, [5, 10, 15, 20, 25]) \
+        .addGrid(rf.maxBins, [16, 32, 48, 64]) \
         .build()
-    evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+    eval_ac = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+    eval_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
     tvs = TrainValidationSplit(estimator=rf,
                                estimatorParamMaps=paramGrid,
-                               evaluator=evaluator,
+                               evaluator=eval_ac,
                                trainRatio=0.8)
+    
     model = tvs.fit(train_df)
     best_rf = model.bestModel
-    best_accuracy = evaluator.evaluate(best_rf.transform(val_df))
+    
+    val_preds = best_rf.transform(val_df)
+    best_accuracy = eval_ac.evaluate(val_preds)
+    best_f1_score = eval_f1.evaluate(val_preds)
+
     print()
-    print(f"Best Random Forest Model: \
-          \n numTrees = {best_rf.getNumTrees}, 
-          \n maxDepth = {best_rf.getMaxDepth}")
-    print(f"Validation Accuracy: {best_accuracy:.4f}")
+    print("\nBest Random Forest Model:")
+    print(f"numTrees = {best_rf.getNumTrees}")
+    print(f"maxDepth = {best_rf.getMaxDepth}")
+    print(f"maxBins  = {best_rf.getMaxBins}")
+    print()
+    print(f"BEST ACCURACY ACHIEVED: {best_accuracy:.4f}")
+    print(f"BEST F1 SCORE ACHIEVED: {best_f1_score:.4f}")
+    print()
+
     return best_rf
 
 def train_and_evaluate(models, train_df, val_df):
     eval_acc = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
     eval_f1 = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="f1")
     results = []
-    trained_models = {}
 
     for name, model in models:
         print(f"\nTraining {name}...")
@@ -129,32 +149,20 @@ def train_and_evaluate(models, train_df, val_df):
 def main():
     spark = initialize_spark()
     try:
+        logger.info("Starting Spark application...")
         df = load_dataset(spark, TRAINCSV, VALCSV)
         df = preprocess_data(df)
         df = oversample_minority_classes(df)
-        train, val  = df.randomSplit([0.8, 0.2], seed=42)
+        train_df, val_df = df.randomSplit([0.8, 0.2], seed=42)
 
-        models = [
-            ("Random Forest", RandomForestClassifier(featuresCol="features", labelCol="label", numTrees=50)),
-        ]
+        logger.info("Training Random Forest model with grid search...")
+        best_rf_model = perform_grid_search_rf(train_df, val_df)
 
-        # Train and evaluate models
-        results = train_and_evaluate(models, train, val)
+        logger.info(f"Saving the best model to {MODEL_PATH}...")
+        best_rf_model.write().overwrite().save(MODEL_PATH)
 
-        # Print results
-        print("\nModel Comparison Results")
-        for name, accuracy, f1_score in results:
-            print(f"-- {name}:\
-                  \n Accuracy = {accuracy:.4f}\
-                  \n F1 Score = {f1_score:.4f}")
-
-         # Grid Search for Random Forest
-        print("\nPerforming Grid Search for Random Forest...")
-        best_rf_model = perform_grid_search_rf(train, val)
-
-        # Save
-        best_rf_model.write().overwrite().save("best_model")
     finally:
+        logger.info("Stopping Spark session...")
         spark.stop()
 
 if __name__ == "__main__":
