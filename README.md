@@ -1,3 +1,17 @@
+## Project Description
+The SparkWinePredictor project focuses on building a parallel machine learning application to predict wine quality using Apache Spark's MLlib on Amazon AWS. This project involves training, validating, and testing a wine quality prediction model across multiple EC2 instances and deploying the model using Docker for simplified distribution and execution.
+
+The project objectives are as follows:
+
+* Parallel ML Model Training: Utilize Spark's distributed computing capabilities to train the model in parallel on 4 AWS EC2 instances using the provided TrainingDataset.csv.
+* Model Validation and Optimization: Use the ValidationDataset.csv to validate and fine-tune the model, ensuring optimal performance.
+* Model Testing: Evaluate the trained model's performance on unseen data using the F1 score as a key performance metric.
+* Dockerized Deployment: Package the Spark application and trained model into a Docker container to enable seamless deployment on a single EC2 instance for prediction.
+  
+The project will employ Spark's MLlib to implement a simple linear regression or logistic regression model for classification, starting with basic models and exploring additional ML algorithms to enhance performance. The application will classify wine quality scores (1 to 10) based on the provided datasets.
+
+This hands-on project showcases the power of Apache Spark for distributed machine learning, the versatility of MLlib for regression and classification, and the scalability of AWS cloud infrastructure for high-performance computing tasks.
+
 ## Project Action Items
 0. Launch 4 EC2 instances on AWS to parallelize model training.
 0. SSH into the EC2 Instance
