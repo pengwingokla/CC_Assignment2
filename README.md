@@ -1,3 +1,4 @@
+# Spark Wine Predictor
 ## Project Description
 The SparkWinePredictor project focuses on building a parallel machine learning application to predict wine quality using Apache Spark's MLlib on Amazon AWS. This project involves training, validating, and testing a wine quality prediction model across multiple EC2 instances and deploying the model using Docker for simplified distribution and execution.
 
